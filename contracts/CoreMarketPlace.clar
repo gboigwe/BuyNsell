@@ -1,4 +1,4 @@
-;; BuyNsell: Enhanced Core Marketplace Smart Contract
+;; BuyNsell: Corrected Core Marketplace Smart Contract
 
 ;; Define constants
 (define-constant CONTRACT_OWNER tx-sender)
@@ -8,6 +8,8 @@
 (define-constant ERR_LISTING_EXPIRED (err u103))
 (define-constant ERR_INVALID_STATUS (err u104))
 (define-constant ERR_INVALID_RATING (err u105))
+(define-constant ERR_WISHLIST_FULL (err u106))
+(define-constant ERR_SAVED_SEARCHES_FULL (err u107))
 (define-constant MAX_BATCH_SIZE u10)
 
 ;; Define data maps
@@ -76,10 +78,7 @@
                                         tags: (list 5 (string-ascii 20)),
                                         duration: uint
                                       })))
-  (let
-    ((results (map create-single-listing listings)))
-    (ok results)
-  )
+  (ok (map create-single-listing listings))
 )
 
 ;; Helper function for batch listing creation
@@ -152,7 +151,9 @@
     (
       (current-wishlist (default-to (list) (map-get? UserWishlists tx-sender)))
     )
-    (ok (map-set UserWishlists tx-sender (unwrap! (as-max-len? (append current-wishlist listing-id) u100) ERR_NOT_AUTHORIZED)))
+    (if (< (len current-wishlist) u100)
+        (ok (map-set UserWishlists tx-sender (append current-wishlist listing-id)))
+        ERR_WISHLIST_FULL)
   )
 )
 
@@ -162,8 +163,13 @@
     (
       (current-wishlist (default-to (list) (map-get? UserWishlists tx-sender)))
     )
-    (ok (map-set UserWishlists tx-sender (filter (lambda (id) (not (is-eq id listing-id))) current-wishlist)))
+    (ok (map-set UserWishlists tx-sender (filter not-matching-id current-wishlist)))
   )
+)
+
+;; Helper function for remove-from-wishlist
+(define-private (not-matching-id (id uint))
+  (not (is-eq id listing-id))
 )
 
 ;; Get user's wishlist
@@ -177,7 +183,9 @@
     (
       (current-searches (default-to (list) (map-get? SavedSearches tx-sender)))
     )
-    (ok (map-set SavedSearches tx-sender (unwrap! (as-max-len? (append current-searches search-query) u10) ERR_NOT_AUTHORIZED)))
+    (if (< (len current-searches) u10)
+        (ok (map-set SavedSearches tx-sender (append current-searches search-query)))
+        ERR_SAVED_SEARCHES_FULL)
   )
 )
 
@@ -216,7 +224,7 @@
     )
     (and
       (match keyword
-        keyword (contains (get name listing-data) keyword)
+        keyword (is-some (index-of (get name listing-data) keyword))
         true
       )
       (match category
@@ -250,7 +258,7 @@
   )
 )
 
-;; Reminder for expiring listings (this would typically involve off-chain components)
+;; Get expiring listings (this would typically involve off-chain components)
 (define-read-only (get-expiring-listings (days uint))
   (filter is-expiring-soon (map-keys Listings))
 )
