@@ -36,6 +36,7 @@
 
 ;; Define variables
 (define-data-var last-listing-id uint u0)
+(define-data-var listing-ids (list 100 uint) [])
 
 ;; Define functions
 
@@ -64,6 +65,7 @@
       }
     )
     (var-set last-listing-id listing-id)
+    (var-set listing-ids (cons listing-id (var-get listing-ids)))
     (ok listing-id)
   )
 )
@@ -213,30 +215,28 @@
 
 ;; Search listings (simplified, actual implementation would be more complex and likely involve off-chain components)
 (define-read-only (search-listings (keyword (string-ascii 20)) (category (optional (string-ascii 20))) (min-price (optional uint)) (max-price (optional uint)))
-  (filter search-predicate (map-keys Listings))
+  (let ((ids (var-get listing-ids)))
+    (filter (search-predicate keyword category min-price max-price) ids))
 )
 
 ;; Helper function for search
-(define-private (search-predicate (listing { listing-id: uint }))
+(define-private (search-predicate (keyword (string-ascii 20)) (category (optional (string-ascii 20))) (min-price (optional uint)) (max-price (optional uint)) (listing-id uint))
   (let
     (
-      (listing-data (unwrap! (map-get? Listings listing) false))
+      (listing-data (unwrap! (map-get? Listings { listing-id: listing-id }) false))
     )
     (and
-      (match keyword
-        keyword (is-some (index-of (get name listing-data) keyword))
-        true
-      )
+      (is-some (index-of (get name listing-data) keyword))
       (match category
-        category (is-eq (get category listing-data) category)
+        category (is-eq (get category listing-data) (unwrap category))
         true
       )
       (match min-price
-        min-price (>= (get price listing-data) min-price)
+        min-price (>= (get price listing-data) (unwrap min-price))
         true
       )
       (match max-price
-        max-price (<= (get price listing-data) max-price)
+        max-price (<= (get price listing-data) (unwrap max-price))
         true
       )
     )
@@ -245,12 +245,13 @@
 
 ;; Get all active listings
 (define-read-only (get-active-listings)
-  (filter is-active-listing (map-keys Listings))
+  (let ((ids (var-get listing-ids)))
+    (filter is-active-listing ids))
 )
 
 ;; Helper function to check if a listing is active
-(define-private (is-active-listing (listing { listing-id: uint }))
-  (let ((listing-data (unwrap! (map-get? Listings listing) false)))
+(define-private (is-active-listing (listing-id uint))
+  (let ((listing-data (unwrap! (map-get? Listings { listing-id: listing-id }) false)))
     (and
       (is-eq (get status listing-data) "active")
       (<= block-height (get expires-at listing-data))
@@ -260,14 +261,15 @@
 
 ;; Get expiring listings (this would typically involve off-chain components)
 (define-read-only (get-expiring-listings (days uint))
-  (filter is-expiring-soon (map-keys Listings))
+  (let ((ids (var-get listing-ids)))
+    (filter (is-expiring-soon days) ids))
 )
 
 ;; Helper function to check if a listing is expiring soon
-(define-private (is-expiring-soon (listing { listing-id: uint }))
+(define-private (is-expiring-soon (days uint) (listing-id uint))
   (let 
     (
-      (listing-data (unwrap! (map-get? Listings listing) false))
+      (listing-data (unwrap! (map-get? Listings { listing-id: listing-id }) false))
       (expiration-threshold (+ block-height (* days u144))) ;; Assuming 144 blocks per day
     )
     (and
