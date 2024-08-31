@@ -1,10 +1,33 @@
 ;; BuyNsell Token (BST) Contract
 
-;; Import SIP-010 trait
-(use-trait sip-010-trait 'SP3FBR2AGK5H9QBDH3EEN6DF8EK8JY7RX8QJ5SVTE.sip-010-trait-ft-standard.sip-010-trait)
+;; Define SIP-010 trait locally
+(define-trait sip-010-trait
+  (
+    ;; Transfer from the caller to a new principal
+    (transfer (uint principal principal (optional (buff 34))) (response bool uint))
+
+    ;; The human-readable name of the token
+    (get-name () (response (string-ascii 32) uint))
+
+    ;; The ticker symbol, or empty if none
+    (get-symbol () (response (string-ascii 32) uint))
+
+    ;; The number of decimals used, e.g. 6 would mean 1_000_000 represents 1 token
+    (get-decimals () (response uint uint))
+
+    ;; The balance of the passed principal
+    (get-balance (principal) (response uint uint))
+
+    ;; The current total supply (which does not need to be a constant)
+    (get-total-supply () (response uint uint))
+
+    ;; Optional URI for off-chain metadata
+    (get-token-uri () (response (optional (string-utf8 256)) uint))
+  )
+)
 
 ;; Implement SIP-010 trait
-(impl-trait 'SP3FBR2AGK5H9QBDH3EEN6DF8EK8JY7RX8QJ5SVTE.sip-010-trait-ft-standard.sip-010-trait)
+(impl-trait .sip-010-trait)
 
 ;; Define token properties
 (define-fungible-token bst u1000000000000)
