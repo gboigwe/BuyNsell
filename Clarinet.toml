@@ -10,11 +10,6 @@ path = 'contracts/CoreMarketPlace.clar'
 clarity_version = 2
 epoch = 2.5
 
-[contracts.sip-010-trait_clar]
-path = 'contracts/sip-010-trait_clar.clar'
-clarity_version = 2
-epoch = 2.5
-
 [contracts.token]
 path = 'contracts/token.clar'
 clarity_version = 2
