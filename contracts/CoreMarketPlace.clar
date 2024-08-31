@@ -1,4 +1,6 @@
-;; BuyNsell: Corrected Core Marketplace Smart Contract
+;; BuyNsell: Clarity 3.0 Core Marketplace Smart Contract
+
+(use-trait ft-trait 'SP3FBR2AGK5H9QBDH3EEN6DF8EK8JY7RX8QJ5SVTE.sip-010-trait-ft-standard.sip-010-trait)
 
 ;; Define constants
 (define-constant CONTRACT_OWNER tx-sender)
@@ -12,18 +14,28 @@
 (define-constant ERR_SAVED_SEARCHES_FULL (err u107))
 (define-constant MAX_BATCH_SIZE u10)
 
+;; Define a constant for the listing tuple type
+(define-constant LISTING_TUPLE 
+  {name: (string-utf8 64),
+   description: (string-utf8 256),
+   price: uint,
+   category: (string-utf8 32),
+   subcategory: (string-utf8 32),
+   tags: (list 5 (string-utf8 32)),
+   duration: uint})
+
 ;; Define data maps
 (define-map Listings
   { listing-id: uint }
   {
-    name: (string-ascii 50),
-    description: (string-utf8 500),
+    name: (string-utf8 64),
+    description: (string-utf8 256),
     price: uint,
     seller: principal,
-    category: (string-ascii 20),
-    subcategory: (string-ascii 20),
-    tags: (list 5 (string-ascii 20)),
-    status: (string-ascii 10),
+    category: (string-utf8 32),
+    subcategory: (string-utf8 32),
+    tags: (list 5 (string-utf8 32)),
+    status: (string-utf8 16),
     created-at: uint,
     expires-at: uint
   }
@@ -31,19 +43,16 @@
 
 (define-map UserBalances principal uint)
 (define-map UserWishlists principal (list 100 uint))
-(define-map SavedSearches principal (list 10 (string-ascii 100)))
-(define-map ProductReviews { listing-id: uint, reviewer: principal } { rating: uint, review: (string-utf8 500) })
+(define-map SavedSearches principal (list 10 (string-utf8 256)))
+(define-map ProductReviews { listing-id: uint, reviewer: principal } { rating: uint, review: (string-utf8 256) })
 
 ;; Define variables
 (define-data-var last-listing-id uint u0)
-(define-data-var listing-ids (list 100 uint) [])
-
-;; Define functions
 
 ;; Create a new listing
-(define-public (create-listing (name (string-ascii 50)) (description (string-utf8 500)) (price uint) 
-                               (category (string-ascii 20)) (subcategory (string-ascii 20)) 
-                               (tags (list 5 (string-ascii 20))) (duration uint))
+(define-public (create-listing (name (string-utf8 64)) (description (string-utf8 256)) (price uint) 
+                               (category (string-utf8 32)) (subcategory (string-utf8 32)) 
+                               (tags (list 5 (string-utf8 32))) (duration uint))
   (let
     (
       (listing-id (+ (var-get last-listing-id) u1))
@@ -65,34 +74,17 @@
       }
     )
     (var-set last-listing-id listing-id)
-    (var-set listing-ids (cons listing-id (var-get listing-ids)))
     (ok listing-id)
   )
 )
 
 ;; Batch create listings
-(define-public (batch-create-listings (listings (list MAX_BATCH_SIZE {
-                                        name: (string-ascii 50),
-                                        description: (string-utf8 500),
-                                        price: uint,
-                                        category: (string-ascii 20),
-                                        subcategory: (string-ascii 20),
-                                        tags: (list 5 (string-ascii 20)),
-                                        duration: uint
-                                      })))
-  (ok (map create-single-listing listings))
+(define-public (batch-create-listings (listings (list MAX_BATCH_SIZE LISTING_TUPLE)))
+  (ok (map create-listing-from-tuple listings))
 )
 
 ;; Helper function for batch listing creation
-(define-private (create-single-listing (listing {
-                                         name: (string-ascii 50),
-                                         description: (string-utf8 500),
-                                         price: uint,
-                                         category: (string-ascii 20),
-                                         subcategory: (string-ascii 20),
-                                         tags: (list 5 (string-ascii 20)),
-                                         duration: uint
-                                       }))
+(define-private (create-listing-from-tuple (listing LISTING_TUPLE))
   (create-listing
     (get name listing)
     (get description listing)
@@ -110,7 +102,7 @@
 )
 
 ;; Update listing status
-(define-public (update-listing-status (listing-id uint) (new-status (string-ascii 10)))
+(define-public (update-listing-status (listing-id uint) (new-status (string-utf8 16)))
   (let
     (
       (listing (unwrap! (map-get? Listings { listing-id: listing-id }) ERR_LISTING_NOT_FOUND))
@@ -123,7 +115,7 @@
 )
 
 ;; Buy a listing
-(define-public (buy-listing (listing-id uint))
+(define-public (buy-listing (listing-id uint) (payment-token <ft-trait>))
   (let
     (
       (listing (unwrap! (map-get? Listings { listing-id: listing-id }) ERR_LISTING_NOT_FOUND))
@@ -133,11 +125,9 @@
     )
     (asserts! (is-eq (get status listing) "active") ERR_INVALID_STATUS)
     (asserts! (<= block-height (get expires-at listing)) ERR_LISTING_EXPIRED)
-    (asserts! (>= (default-to u0 (map-get? UserBalances buyer)) price) ERR_INSUFFICIENT_BALANCE)
     
-    ;; Update balances
-    (map-set UserBalances buyer (- (default-to u0 (map-get? UserBalances buyer)) price))
-    (map-set UserBalances seller (+ (default-to u0 (map-get? UserBalances seller)) price))
+    ;; Transfer payment
+    (try! (contract-call? payment-token transfer price buyer seller none))
     
     ;; Update listing status
     (map-set Listings { listing-id: listing-id }
@@ -180,7 +170,7 @@
 )
 
 ;; Save search criteria
-(define-public (save-search (search-query (string-ascii 100)))
+(define-public (save-search (search-query (string-utf8 256)))
   (let
     (
       (current-searches (default-to (list) (map-get? SavedSearches tx-sender)))
@@ -197,7 +187,7 @@
 )
 
 ;; Add product review
-(define-public (add-review (listing-id uint) (rating uint) (review (string-utf8 500)))
+(define-public (add-review (listing-id uint) (rating uint) (review (string-utf8 256)))
   (let
     (
       (listing (unwrap! (map-get? Listings { listing-id: listing-id }) ERR_LISTING_NOT_FOUND))
@@ -213,68 +203,62 @@
   (map-get? ProductReviews { listing-id: listing-id, reviewer: reviewer })
 )
 
-;; Search listings (simplified, actual implementation would be more complex and likely involve off-chain components)
-(define-read-only (search-listings (keyword (string-ascii 20)) (category (optional (string-ascii 20))) (min-price (optional uint)) (max-price (optional uint)))
-  (let ((ids (var-get listing-ids)))
-    (filter (search-predicate keyword category min-price max-price) ids))
+;; Get last listing ID
+(define-read-only (get-last-listing-id)
+  (var-get last-listing-id)
 )
 
-;; Helper function for search
-(define-private (search-predicate (keyword (string-ascii 20)) (category (optional (string-ascii 20))) (min-price (optional uint)) (max-price (optional uint)) (listing-id uint))
+;; Get listing IDs in a range
+(define-read-only (get-listing-range (start uint) (end uint))
   (let
     (
-      (listing-data (unwrap! (map-get? Listings { listing-id: listing-id }) false))
+      (last-id (var-get last-listing-id))
+      (actual-end (if (> end last-id) last-id end))
     )
-    (and
-      (is-some (index-of (get name listing-data) keyword))
-      (match category
-        category (is-eq (get category listing-data) (unwrap category))
-        true
-      )
-      (match min-price
-        min-price (>= (get price listing-data) (unwrap min-price))
-        true
-      )
-      (match max-price
-        max-price (<= (get price listing-data) (unwrap max-price))
-        true
-      )
-    )
+    (filter remove-none 
+      (map get-listing-if-exists
+        (create-range start actual-end)))
   )
 )
 
-;; Get all active listings
-(define-read-only (get-active-listings)
-  (let ((ids (var-get listing-ids)))
-    (filter is-active-listing ids))
-)
-
-;; Helper function to check if a listing is active
-(define-private (is-active-listing (listing-id uint))
-  (let ((listing-data (unwrap! (map-get? Listings { listing-id: listing-id }) false)))
-    (and
-      (is-eq (get status listing-data) "active")
-      (<= block-height (get expires-at listing-data))
-    )
+;; Helper function to create a range of numbers
+(define-private (create-range (start uint) (end uint))
+  (fold add-to-range 
+    (list)
+    (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19)
   )
 )
 
-;; Get expiring listings (this would typically involve off-chain components)
-(define-read-only (get-expiring-listings (days uint))
-  (let ((ids (var-get listing-ids)))
-    (filter (is-expiring-soon days) ids))
-)
-
-;; Helper function to check if a listing is expiring soon
-(define-private (is-expiring-soon (days uint) (listing-id uint))
-  (let 
+;; Helper function for create-range
+(define-private (add-to-range (i uint) (acc (list 500 uint)))
+  (let
     (
-      (listing-data (unwrap! (map-get? Listings { listing-id: listing-id }) false))
-      (expiration-threshold (+ block-height (* days u144))) ;; Assuming 144 blocks per day
+      (next (+ start i))
     )
-    (and
-      (is-eq (get status listing-data) "active")
-      (<= (get expires-at listing-data) expiration-threshold)
+    (if (<= next end)
+      (unwrap-panic (as-max-len? (append acc next) u500))
+      acc
     )
   )
+)
+
+;; Helper function to get listing if it exists
+(define-private (get-listing-if-exists (id uint))
+  (map-get? Listings { listing-id: id })
+)
+
+;; Helper function to remove None values
+(define-private (remove-none (item (optional {
+    name: (string-utf8 64),
+    description: (string-utf8 256),
+    price: uint,
+    seller: principal,
+    category: (string-utf8 32),
+    subcategory: (string-utf8 32),
+    tags: (list 5 (string-utf8 32)),
+    status: (string-utf8 16),
+    created-at: uint,
+    expires-at: uint
+  })))
+  item
 )
