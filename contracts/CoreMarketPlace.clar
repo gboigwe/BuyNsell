@@ -16,26 +16,26 @@
 
 ;; Define a constant for the listing tuple type
 (define-constant LISTING_TUPLE 
-  {name: (string-utf8 64),
-   description: (string-utf8 256),
+  {name: (string-ascii 64),
+   description: (string-ascii 256),
    price: uint,
-   category: (string-utf8 32),
-   subcategory: (string-utf8 32),
-   tags: (list 5 (string-utf8 32)),
+   category: (string-ascii 32),
+   subcategory: (string-ascii 32),
+   tags: (list 5 (string-ascii 32)),
    duration: uint})
 
 ;; Define data maps
 (define-map Listings
   { listing-id: uint }
   {
-    name: (string-utf8 64),
-    description: (string-utf8 256),
+    name: (string-ascii 64),
+    description: (string-ascii 256),
     price: uint,
     seller: principal,
-    category: (string-utf8 32),
-    subcategory: (string-utf8 32),
-    tags: (list 5 (string-utf8 32)),
-    status: (string-utf8 16),
+    category: (string-ascii 32),
+    subcategory: (string-ascii 32),
+    tags: (list 5 (string-ascii 32)),
+    status: (string-ascii 16),
     created-at: uint,
     expires-at: uint
   }
@@ -43,16 +43,16 @@
 
 (define-map UserBalances principal uint)
 (define-map UserWishlists principal (list 100 uint))
-(define-map SavedSearches principal (list 10 (string-utf8 256)))
-(define-map ProductReviews { listing-id: uint, reviewer: principal } { rating: uint, review: (string-utf8 256) })
+(define-map SavedSearches principal (list 10 (string-ascii 256)))
+(define-map ProductReviews { listing-id: uint, reviewer: principal } { rating: uint, review: (string-ascii 256) })
 
 ;; Define variables
 (define-data-var last-listing-id uint u0)
 
 ;; Create a new listing
-(define-public (create-listing (name (string-utf8 64)) (description (string-utf8 256)) (price uint) 
-                               (category (string-utf8 32)) (subcategory (string-utf8 32)) 
-                               (tags (list 5 (string-utf8 32))) (duration uint))
+(define-public (create-listing (name (string-ascii 64)) (description (string-ascii 256)) (price uint) 
+                               (category (string-ascii 32)) (subcategory (string-ascii 32)) 
+                               (tags (list 5 (string-ascii 32))) (duration uint))
   (let
     (
       (listing-id (+ (var-get last-listing-id) u1))
@@ -102,7 +102,7 @@
 )
 
 ;; Update listing status
-(define-public (update-listing-status (listing-id uint) (new-status (string-utf8 16)))
+(define-public (update-listing-status (listing-id uint) (new-status (string-ascii 16)))
   (let
     (
       (listing (unwrap! (map-get? Listings { listing-id: listing-id }) ERR_LISTING_NOT_FOUND))
@@ -170,7 +170,7 @@
 )
 
 ;; Save search criteria
-(define-public (save-search (search-query (string-utf8 256)))
+(define-public (save-search (search-query (string-ascii 256)))
   (let
     (
       (current-searches (default-to (list) (map-get? SavedSearches tx-sender)))
@@ -187,7 +187,7 @@
 )
 
 ;; Add product review
-(define-public (add-review (listing-id uint) (rating uint) (review (string-utf8 256)))
+(define-public (add-review (listing-id uint) (rating uint) (review (string-ascii 256)))
   (let
     (
       (listing (unwrap! (map-get? Listings { listing-id: listing-id }) ERR_LISTING_NOT_FOUND))
@@ -249,14 +249,14 @@
 
 ;; Helper function to remove None values
 (define-private (remove-none (item (optional {
-    name: (string-utf8 64),
-    description: (string-utf8 256),
+    name: (string-ascii 64),
+    description: (string-ascii 256),
     price: uint,
     seller: principal,
-    category: (string-utf8 32),
-    subcategory: (string-utf8 32),
-    tags: (list 5 (string-utf8 32)),
-    status: (string-utf8 16),
+    category: (string-ascii 32),
+    subcategory: (string-ascii 32),
+    tags: (list 5 (string-ascii 32)),
+    status: (string-ascii 16),
     created-at: uint,
     expires-at: uint
   })))
