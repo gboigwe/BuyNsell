@@ -9,6 +9,8 @@
 (define-constant ERR_INVALID_ESCROW_ID (err u104))
 (define-constant ERR_INVALID_AMOUNT (err u105))
 (define-constant ERR_INVALID_SELLER (err u106))
+(define-constant ERR_ESCROW_EXPIRED (err u107))
+(define-constant ESCROW_DURATION u1008) ;; ~7 days in blocks (assuming 10-minute block times)
 
 ;; Define data maps
 (define-map Escrows
@@ -17,7 +19,9 @@
     buyer: principal,
     seller: principal,
     amount: uint,
-    state: (string-ascii 10)
+    state: (string-ascii 10),
+    created-at: uint,
+    expires-at: uint
   }
 )
 
@@ -41,6 +45,7 @@
   (let
     (
       (escrow-id (+ (var-get last-escrow-id) u1))
+      (expires-at (+ block-height ESCROW_DURATION))
     )
     (asserts! (> amount u0) (err ERR_INVALID_AMOUNT))
     (asserts! (is-valid-seller seller) (err ERR_INVALID_SELLER))
@@ -53,10 +58,13 @@
               buyer: tx-sender,
               seller: seller,
               amount: amount,
-              state: "locked"
+              state: "locked",
+              created-at: block-height,
+              expires-at: expires-at
             }
           )
           (var-set last-escrow-id escrow-id)
+          (print {event: "escrow_created", escrow-id: escrow-id, buyer: tx-sender, seller: seller, amount: amount})
           (ok escrow-id)
         )
       error (err ERR_TRANSFER_FAILED)
@@ -74,8 +82,9 @@
         (seller (get seller escrow))
         (amount (get amount escrow))
       )
-      (asserts! (is-eq tx-sender CONTRACT_OWNER) (err ERR_NOT_AUTHORIZED))
+      (asserts! (or (is-eq tx-sender CONTRACT_OWNER) (is-eq tx-sender (get buyer escrow))) (err ERR_NOT_AUTHORIZED))
       (asserts! (is-eq (get state escrow) "locked") (err ERR_ALREADY_RELEASED))
+      (asserts! (<= block-height (get expires-at escrow)) (err ERR_ESCROW_EXPIRED))
       (match (as-contract (stx-transfer? amount tx-sender seller))
         success 
           (begin
@@ -83,6 +92,7 @@
               { escrow-id: escrow-id }
               (merge escrow { state: "released" })
             )
+            (print {event: "funds_released", escrow-id: escrow-id, seller: seller, amount: amount})
             (ok true)
           )
         error (err ERR_TRANSFER_FAILED)
@@ -110,6 +120,7 @@
               { escrow-id: escrow-id }
               (merge escrow { state: "refunded" })
             )
+            (print {event: "buyer_refunded", escrow-id: escrow-id, buyer: buyer, amount: amount})
             (ok true)
           )
         error (err ERR_TRANSFER_FAILED)
