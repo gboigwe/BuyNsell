@@ -1,6 +1,10 @@
 ;; BuyNsell: Clarity 3.0 Core Marketplace Smart Contract
 
+
 (use-trait ft-trait 'SP3FBR2AGK5H9QBDH3EEN6DF8EK8JY7RX8QJ5SVTE.sip-010-trait-ft-standard.sip-010-trait)
+
+;; Implement SIP-010 trait
+(impl-trait 'SP3FBR2AGK5H9QBDH3EEN6DF8EK8JY7RX8QJ5SVTE.sip-010-trait-ft-standard.sip-010-trait)
 
 ;; Define constants
 (define-constant CONTRACT_OWNER tx-sender)
