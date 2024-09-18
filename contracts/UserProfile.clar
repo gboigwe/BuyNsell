@@ -66,13 +66,17 @@
     rating-sum: uint,
     reputation-score: uint
   }))
-  (ok (map-set Users user data))
+  (if (map-set Users user data)
+    (ok true)
+    (err ERR_DATA_STORE_FAILURE))
 )
 
 ;; Read-only functions
 
 (define-read-only (get-user-profile (user principal))
-  (map-get? Users user)
+  (match (map-get? Users user)
+    user-data (ok user-data)
+    (err ERR_USER_NOT_FOUND))
 )
 
 (define-read-only (get-user-rating (user principal))
@@ -89,7 +93,7 @@
 )
 
 (define-read-only (is-user-authorized (user principal))
-  (default-to false (map-get? UserAuthorization user))
+  (ok (default-to false (map-get? UserAuthorization user)))
 )
 
 ;; Public functions
@@ -97,61 +101,86 @@
 (define-public (register-user (username (string-utf8 64)) (bio (string-utf8 256)) (email (string-utf8 64)))
   (let (
     (existing-user (map-get? Users tx-sender))
+  )
+  (asserts! (is-none existing-user) (err ERR_ALREADY_REGISTERED))
+  (asserts! (and 
+              (> (len username) u0)
+              (>= (len username) u1)
+              (<= (len username) u64)
+              (> (len bio) u0)
+              (>= (len bio) u1)
+              (<= (len bio) u256)
+              (> (len email) u0)
+              (>= (len email) u1)
+              (<= (len email) u64))
+            (err ERR_INVALID_INPUT))
+  (let (
     (validated-username (try! (validate-username username)))
     (validated-bio (try! (validate-bio bio)))
     (validated-email (try! (validate-email email)))
   )
-  (asserts! (is-none existing-user) (err ERR_ALREADY_REGISTERED))
-  (unwrap! (set-user-data tx-sender
-    {
-      username: validated-username,
-      bio: validated-bio,
-      email: validated-email,
-      registration-date: block-height,
-      total-ratings: u0,
-      rating-sum: u0,
-      reputation-score: u0
-    })
-    (err ERR_DATA_STORE_FAILURE))
-  (ok true)))
+    (match (set-user-data tx-sender
+      {
+        username: validated-username,
+        bio: validated-bio,
+        email: validated-email,
+        registration-date: block-height,
+        total-ratings: u0,
+        rating-sum: u0,
+        reputation-score: u0
+      })
+      success (ok true)
+      error (err ERR_DATA_STORE_FAILURE))
+  ))
+)
 
 (define-public (update-profile (bio (string-utf8 256)) (email (string-utf8 64)))
-  (match (map-get? Users tx-sender)
-    user-data 
-      (let (
-        (validated-bio (try! (validate-bio bio)))
-        (validated-email (try! (validate-email email)))
+  (begin
+    (asserts! (and 
+                (> (len bio) u0)
+                (>= (len bio) u1)
+                (<= (len bio) u256)
+                (> (len email) u0)
+                (>= (len email) u1)
+                (<= (len email) u64))
+              (err ERR_INVALID_INPUT))
+    (let (
+      (validated-bio (try! (validate-bio bio)))
+      (validated-email (try! (validate-email email)))
+    )
+      (match (map-get? Users tx-sender)
+        user-data 
+          (match (set-user-data tx-sender
+            (merge user-data
+              {
+                bio: validated-bio,
+                email: validated-email
+              }
+            ))
+            success (ok true)
+            error (err ERR_DATA_STORE_FAILURE))
+        (err ERR_USER_NOT_FOUND)
       )
-      (unwrap! (set-user-data tx-sender
-        (merge user-data
-          {
-            bio: validated-bio,
-            email: validated-email
-          }
-        ))
-        (err ERR_DATA_STORE_FAILURE))
-      (ok true))
-    (err ERR_USER_NOT_FOUND)
+    )
   )
 )
 
 (define-public (rate-user (user principal) (rating uint))
   (begin
     (asserts! (is-valid-principal user) (err ERR_INVALID_PRINCIPAL))
+    (asserts! (not (is-eq tx-sender user)) (err ERR_SELF_RATING))
+    (asserts! (and (>= rating u1) (<= rating u5)) (err ERR_INVALID_RATING))
     (match (map-get? Users user)
       user-data
-        (begin
-          (asserts! (not (is-eq tx-sender user)) (err ERR_SELF_RATING))
-          (asserts! (and (>= rating u1) (<= rating u5)) (err ERR_INVALID_RATING))
-          (unwrap! (set-user-data user
-            (merge user-data
-              {
-                total-ratings: (+ (get total-ratings user-data) u1),
-                rating-sum: (+ (get rating-sum user-data) rating)
-              }
-            ))
-            (err ERR_DATA_STORE_FAILURE))
-          (ok true))
+        (match (set-user-data user
+          (merge user-data
+            {
+              total-ratings: (+ (get total-ratings user-data) u1),
+              rating-sum: (+ (get rating-sum user-data) rating)
+            }
+          ))
+          success (ok true)
+          error (err ERR_DATA_STORE_FAILURE))
       (err ERR_USER_NOT_FOUND)
     )
   )
@@ -168,14 +197,14 @@
           (avg-rating (if (> total-ratings u0) (/ rating-sum total-ratings) u0))
           (new-reputation (+ (* avg-rating u20) (* total-ratings u2)))
         )
-        (unwrap! (set-user-data user
+        (match (set-user-data user
           (merge user-data
             {
               reputation-score: new-reputation
             }
           ))
-          (err ERR_DATA_STORE_FAILURE))
-        (ok new-reputation))
+          success (ok true)
+          error (err ERR_DATA_STORE_FAILURE)))
       (err ERR_USER_NOT_FOUND)
     )
   )
