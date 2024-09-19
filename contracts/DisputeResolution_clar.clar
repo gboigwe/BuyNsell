@@ -11,7 +11,12 @@
 (define-constant ERR_INSUFFICIENT_VOTES (err u106))
 (define-constant ERR_INVALID_VOTE (err u107))
 (define-constant ERR_NOT_INVOLVED_PARTY (err u108))
-(define-constant VOTING_PERIOD u144) ;; 24 hours in blocks (assuming 10-minute block times)
+(define-constant ERR_INVALID_ESCROW_ID (err u109))
+(define-constant ERR_INVALID_REASON (err u110))
+(define-constant ERR_INVALID_DISPUTE_ID (err u111))
+(define-constant ERR_INVALID_REWARD (err u112))
+(define-constant ERR_INVALID_PRINCIPAL (err u113))
+(define-constant VOTING_PERIOD u144)
 (define-constant MIN_VOTES_REQUIRED u3)
 
 ;; Data Maps
@@ -63,12 +68,26 @@
   )
 )
 
+(define-private (is-valid-escrow-id (escrow-id uint))
+  (> escrow-id u0)
+)
+
+(define-private (is-valid-reason (reason (string-utf8 256)))
+  (and (> (len reason) u0) (<= (len reason) u256))
+)
+
+(define-private (is-valid-dispute-id (dispute-id uint))
+  (<= dispute-id (var-get last-dispute-id))
+)
+
 ;; Public Functions
 (define-public (raise-dispute (escrow-id uint) (counterparty principal) (reason (string-utf8 256)))
   (let
     (
       (dispute-id (+ (var-get last-dispute-id) u1))
     )
+    (asserts! (is-valid-escrow-id escrow-id) (err ERR_INVALID_ESCROW_ID))
+    (asserts! (is-valid-reason reason) (err ERR_INVALID_REASON))
     (asserts! (not (is-eq tx-sender counterparty)) (err ERR_NOT_INVOLVED_PARTY))
     (map-set Disputes
       { dispute-id: dispute-id }
@@ -95,6 +114,7 @@
     (
       (dispute (unwrap! (map-get? Disputes { dispute-id: dispute-id }) (err ERR_DISPUTE_NOT_FOUND)))
     )
+    (asserts! (is-valid-dispute-id dispute-id) (err ERR_INVALID_DISPUTE_ID))
     (asserts! (is-arbitrator tx-sender) (err ERR_NOT_ARBITRATOR))
     (asserts! (is-eq (get status dispute) "open") (err ERR_VOTING_CLOSED))
     (asserts! (<= (- block-height (get created-at dispute)) VOTING_PERIOD) (err ERR_VOTING_CLOSED))
@@ -111,6 +131,7 @@
     (
       (dispute (unwrap! (map-get? Disputes { dispute-id: dispute-id }) (err ERR_DISPUTE_NOT_FOUND)))
     )
+    (asserts! (is-valid-dispute-id dispute-id) (err ERR_INVALID_DISPUTE_ID))
     (asserts! (is-eq (get status dispute) "open") (err ERR_INVALID_STATE))
     (asserts! (>= (+ (get votes-for dispute) (get votes-against dispute)) MIN_VOTES_REQUIRED) (err ERR_INSUFFICIENT_VOTES))
     (asserts! (<= (- block-height (get created-at dispute)) VOTING_PERIOD) (err ERR_VOTING_CLOSED))
@@ -133,6 +154,7 @@
 (define-public (add-arbitrator (arbitrator principal))
   (begin
     (asserts! (is-eq tx-sender CONTRACT_OWNER) (err ERR_NOT_AUTHORIZED))
+    (asserts! (is-valid-principal arbitrator) (err ERR_INVALID_PRINCIPAL))
     (map-set Arbitrators arbitrator true)
     (print { event: "arbitrator_added", arbitrator: arbitrator })
     (ok true)
@@ -142,6 +164,7 @@
 (define-public (remove-arbitrator (arbitrator principal))
   (begin
     (asserts! (is-eq tx-sender CONTRACT_OWNER) (err ERR_NOT_AUTHORIZED))
+    (asserts! (is-valid-principal arbitrator) (err ERR_INVALID_PRINCIPAL))
     (map-delete Arbitrators arbitrator)
     (print { event: "arbitrator_removed", arbitrator: arbitrator })
     (ok true)
@@ -151,6 +174,7 @@
 (define-public (set-arbitrator-reward (new-reward uint))
   (begin
     (asserts! (is-eq tx-sender CONTRACT_OWNER) (err ERR_NOT_AUTHORIZED))
+    (asserts! (> new-reward u0) (err ERR_INVALID_REWARD))
     (var-set arbitrator-reward new-reward)
     (print { event: "arbitrator_reward_set", new-reward: new-reward })
     (ok true)
@@ -172,6 +196,14 @@
 
 (define-read-only (is-user-arbitrator (user principal))
   (ok (is-arbitrator user))
+)
+
+;; Helper function for principal validation
+(define-private (is-valid-principal (principal principal))
+  (and 
+    (not (is-eq principal CONTRACT_OWNER))
+    (not (is-eq principal (as-contract tx-sender)))
+  )
 )
 
 ;; Initialize contract
