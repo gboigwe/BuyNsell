@@ -90,10 +90,13 @@
     (begin
         (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
         (match new-uri
-            uri (asserts! (<= (len uri) u256) ERR_INVALID_URI)
-            true
+            uri (begin
+                (asserts! (<= (len uri) u256) ERR_INVALID_URI)
+                (var-set token-uri (some uri))
+            )
+            (var-set token-uri none)
         )
-        (ok (var-set token-uri new-uri))
+        (ok true)
     )
 )
 
