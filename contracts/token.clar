@@ -11,26 +11,41 @@
 (define-constant ERR_INSUFFICIENT_BALANCE (err u103))
 (define-constant ERR_INVALID_RECIPIENT (err u104))
 (define-constant ERR_INVALID_URI (err u105))
+(define-constant ERR_MAX_SUPPLY_REACHED (err u106))
+(define-constant ERR_CONTRACT_PAUSED (err u107))
+(define-constant MAX_SUPPLY u10000000000000) ;; 10 trillion tokens
 
 ;; Define variables
-(define-data-var token-name (string-ascii 32) "BuyNsell Token")
-(define-data-var token-symbol (string-ascii 10) "BST")
+(define-data-var token-name (string-utf8 32) u"BuyNsell Token")
+(define-data-var token-symbol (string-utf8 10) u"BST")
 (define-data-var token-decimals uint u6)
 (define-data-var token-uri (optional (string-utf8 256)) none)
+(define-data-var contract-paused bool false)
 
 ;; Helper function to check if a principal is a valid recipient
 (define-private (is-valid-recipient (recipient principal))
   (not (is-eq recipient (as-contract tx-sender))))
 
+;; Helper function to check if the contract is not paused
+(define-private (is-contract-not-paused)
+  (not (var-get contract-paused)))
+
 ;; SIP-010: Transfer
 (define-public (transfer (amount uint) (sender principal) (recipient principal) (memo (optional (buff 34))))
     (begin
+        (asserts! (is-contract-not-paused) ERR_CONTRACT_PAUSED)
         (asserts! (is-eq tx-sender sender) ERR_NOT_AUTHORIZED)
         (asserts! (> amount u0) ERR_INVALID_AMOUNT)
         (asserts! (<= amount (ft-get-balance bst sender)) ERR_INSUFFICIENT_BALANCE)
         (asserts! (is-valid-recipient recipient) ERR_INVALID_RECIPIENT)
         (try! (ft-transfer? bst amount sender recipient))
-        (match memo to-print (print to-print) 0x)
+        (print (merge 
+            {event: "token_transferred", amount: amount, sender: sender, recipient: recipient}
+            (match memo
+                some-memo {memo: (some some-memo)}
+                {memo: none}
+            )
+        ))
         (ok true)
     )
 )
@@ -68,20 +83,31 @@
 ;; Mint new tokens (only contract owner)
 (define-public (mint (amount uint) (recipient principal))
     (begin
+        (asserts! (is-contract-not-paused) ERR_CONTRACT_PAUSED)
         (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
         (asserts! (> amount u0) ERR_INVALID_AMOUNT)
         (asserts! (is-valid-recipient recipient) ERR_INVALID_RECIPIENT)
-        (ft-mint? bst amount recipient)
+        (asserts! (<= (+ amount (ft-get-supply bst)) MAX_SUPPLY) ERR_MAX_SUPPLY_REACHED)
+        (match (ft-mint? bst amount recipient)
+            success (begin
+                (print {event: "token_minted", amount: amount, recipient: recipient})
+                (ok success))
+            error (err error))
     )
 )
 
 ;; Burn tokens
 (define-public (burn (amount uint) (sender principal))
     (begin
+        (asserts! (is-contract-not-paused) ERR_CONTRACT_PAUSED)
         (asserts! (is-eq tx-sender sender) ERR_NOT_AUTHORIZED)
         (asserts! (> amount u0) ERR_INVALID_AMOUNT)
         (asserts! (<= amount (ft-get-balance bst sender)) ERR_INSUFFICIENT_BALANCE)
-        (ft-burn? bst amount sender)
+        (match (ft-burn? bst amount sender)
+            success (begin
+                (print {event: "token_burned", amount: amount, sender: sender})
+                (ok success))
+            error (err error))
     )
 )
 
@@ -90,12 +116,38 @@
     (begin
         (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
         (match new-uri
-            uri (begin
-                (asserts! (<= (len uri) u256) ERR_INVALID_URI)
-                (var-set token-uri (some uri))
+            some-uri 
+                (begin
+                    (asserts! (<= (len some-uri) u256) ERR_INVALID_URI)
+                    (var-set token-uri (some some-uri))
+                    (print {event: "token_uri_updated", new_uri: some-uri})
+                    (ok true)
+                )
+            (begin
+                (var-set token-uri none)
+                (print {event: "token_uri_removed"})
+                (ok true)
             )
-            (var-set token-uri none)
         )
+    )
+)
+
+;; Pause contract (only contract owner)
+(define-public (pause-contract)
+    (begin
+        (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
+        (var-set contract-paused true)
+        (print {event: "contract_paused"})
+        (ok true)
+    )
+)
+
+;; Unpause contract (only contract owner)
+(define-public (unpause-contract)
+    (begin
+        (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
+        (var-set contract-paused false)
+        (print {event: "contract_unpaused"})
         (ok true)
     )
 )
@@ -105,5 +157,5 @@
     ;; Mint initial supply to contract owner
     (try! (ft-mint? bst u1000000000000 CONTRACT_OWNER))
     ;; Print a deploy message
-    (print "BuyNsell Token (BST) contract deployed successfully")
+    (print {event: "contract_deployed", initial_supply: u1000000000000})
 )
